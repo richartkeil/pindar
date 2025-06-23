@@ -175,7 +175,24 @@ func main() {
 	// Send the transcription request
 	response, err := client.Audio.Transcriptions.New(ctx, params)
 	if err != nil {
-		fmt.Printf("❌ Error calling OpenAI API: %v\n", err)
+		// Handle specific error cases gracefully
+		errStr := err.Error()
+
+		if strings.Contains(errStr, "longer than 1500 seconds") || strings.Contains(errStr, "maximum for this model") {
+			fmt.Printf("❌ Audio file too long: The audio duration exceeds the 25-minute limit for this model.\n")
+			fmt.Printf("💡 Suggestions:\n")
+			fmt.Printf("   • Split the audio into shorter segments (< 25 minutes each)\n")
+			fmt.Printf("   • Use audio editing software to create multiple files\n")
+			fmt.Printf("   • Consider using a different transcription service for longer files\n")
+		} else if strings.Contains(errStr, "invalid_api_key") || strings.Contains(errStr, "Incorrect API key") {
+			fmt.Printf("❌ API Key Error: Invalid or missing OpenAI API key.\n")
+			fmt.Printf("💡 Please check your API key and try again.\n")
+		} else if strings.Contains(errStr, "quota") || strings.Contains(errStr, "rate_limit") {
+			fmt.Printf("❌ Rate Limit/Quota Error: API usage limit reached.\n")
+			fmt.Printf("💡 Please wait a moment and try again, or check your OpenAI account billing.\n")
+		} else {
+			fmt.Printf("❌ Error calling OpenAI API: %v\n", err)
+		}
 		os.Exit(1)
 	}
 
