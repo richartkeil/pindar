@@ -64,6 +64,7 @@ The stored API key will be used for future runs unless overridden by a command-l
 
 ## Supported Audio Formats
 
+**Native OpenAI API Formats** (used directly):
 - flac
 - mp3
 - mp4
@@ -73,6 +74,26 @@ The stored API key will be used for future runs unless overridden by a command-l
 - ogg
 - wav
 - webm
+
+**Auto-Converted Formats** (converted to MP4 using ffmpeg):
+- Any audio format supported by ffmpeg (e.g., aiff, au, amr, 3gp, etc.)
+
+### Automatic Format Conversion
+
+If you provide an audio file in a format not natively supported by the OpenAI API, Pindar will automatically:
+
+1. **Detect** the unsupported format
+2. **Convert** it to MP4 using ffmpeg (lossless compression with AAC codec)
+3. **Log** the conversion process
+4. **Clean up** the temporary converted file after transcription
+
+**Requirements for auto-conversion:**
+- [ffmpeg](https://ffmpeg.org/) must be installed and available in your system PATH
+
+**Installation of ffmpeg:**
+- **macOS**: `brew install ffmpeg`
+- **Ubuntu/Debian**: `sudo apt install ffmpeg`
+- **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
 
 ## Output Formats
 

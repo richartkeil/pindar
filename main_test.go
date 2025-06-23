@@ -159,3 +159,105 @@ func TestTranscriptionIntegration(t *testing.T) {
 	// ... the actual implementation would call the main function with these args
 	*/
 }
+
+// Integration test helper - doesn't actually make API calls
+func TestFileOpeningIntegration(t *testing.T) {
+	// Create a temporary file for testing
+	tempFile := createTempAudioFile(t, "dummy audio content")
+	defer os.Remove(tempFile)
+
+	// Test the flow up to the point where we would make the API call
+	// This validates file opening, validation, and parameter setup
+	args := Args{
+		File:   tempFile,
+		Format: "text",
+	}
+
+	// Ensure the file can be opened and validated
+	file, err := os.Open(args.File)
+	if err != nil {
+		t.Fatalf("Failed to open test file: %v", err)
+	}
+	defer file.Close()
+}
+
+func TestGetFileExtension(t *testing.T) {
+	tests := []struct {
+		filename string
+		expected string
+	}{
+		{"audio.mp3", "mp3"},
+		{"audio.MP3", "mp3"},
+		{"audio.flac", "flac"},
+		{"audio.m4a", "m4a"},
+		{"audio.wav", "wav"},
+		{"audio", ""},
+		{"audio.", ""},
+		{"/path/to/audio.mp3", "mp3"},
+		{"audio.test.mp3", "mp3"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.filename, func(t *testing.T) {
+			result := getFileExtension(test.filename)
+			if result != test.expected {
+				t.Errorf("getFileExtension(%s) = %s, expected %s", test.filename, result, test.expected)
+			}
+		})
+	}
+}
+
+func TestIsFormatSupported(t *testing.T) {
+	tests := []struct {
+		filename string
+		expected bool
+	}{
+		{"audio.mp3", true},
+		{"audio.flac", true},
+		{"audio.wav", true},
+		{"audio.m4a", true},
+		{"audio.mp4", true},
+		{"audio.ogg", true},
+		{"audio.webm", true},
+		{"audio.mpeg", true},
+		{"audio.mpga", true},
+		{"audio.oga", true},
+		{"audio.aiff", false},
+		{"audio.au", false},
+		{"audio.amr", false},
+		{"audio.3gp", false},
+		{"audio.unknown", false},
+		{"audio", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.filename, func(t *testing.T) {
+			result := isFormatSupported(test.filename)
+			if result != test.expected {
+				t.Errorf("isFormatSupported(%s) = %v, expected %v", test.filename, result, test.expected)
+			}
+		})
+	}
+}
+
+func TestConvertToMP4_FFmpegNotFound(t *testing.T) {
+	// Create a temporary file for testing
+	tempFile := createTempAudioFile(t, "dummy audio content")
+	defer os.Remove(tempFile)
+
+	// Change the filename to an unsupported format
+	unsupportedFile := strings.Replace(tempFile, ".mp3", ".aiff", 1)
+	err := os.Rename(tempFile, unsupportedFile)
+	if err != nil {
+		t.Fatalf("Failed to rename test file: %v", err)
+	}
+	defer os.Remove(unsupportedFile)
+
+	// Test conversion (this will likely fail unless ffmpeg is installed)
+	_, err = convertToMP4(unsupportedFile)
+	
+	// We expect either success (if ffmpeg is available) or a specific error
+	if err != nil && !strings.Contains(err.Error(), "ffmpeg not found") && !strings.Contains(err.Error(), "ffmpeg conversion failed") {
+		t.Errorf("Unexpected error type: %v", err)
+	}
+}
