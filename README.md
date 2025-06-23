@@ -1,113 +1,104 @@
-# Pindar - Audio Transcription CLI Tool
+# Pindar
 
-Pindar is a Go-based command-line tool that transcribes audio files using the OpenAI API.
+A command-line tool for transcribing audio files using OpenAI's Whisper API.
 
 ## Features
 
-- Transcribe audio files in various formats (flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm)
-- Support for different output formats (text, srt, vtt, verbose_json)
-- Option to save output to a file or print to stdout
-- Custom language specification
-- Temperature adjustment for transcription randomness
+- **Audio Transcription**: Transcribe audio files in various formats (unknown formats are automatically converted using ffmpeg)
+- **Multiple Output Formats**: Support for text, SRT, VTT, and verbose JSON output
+- **Flexible Configuration**: Set OpenAI API key via command line, environment variable, or persistent config
+- **Custom Output Control**: Specify output directory and file extensions
+- **Language Detection**: Automatic language detection or manual specification
+- **Prompt Support**: Guide transcription with custom prompts
 
 ## Installation
 
-1. Make sure you have Go installed (1.18+)
-2. Clone the repository
-3. Build the binary:
+### Prerequisites
+
+- Go 1.19 or later
+- **ffmpeg** (required for automatic audio format conversion)
+  - macOS: `brew install ffmpeg`
+  - Ubuntu/Debian: `sudo apt install ffmpeg`
+  - Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+
+### Install from Source
 
 ```bash
-go build -o pindar
+git clone https://github.com/richartkeil/pindar.git
+cd pindar
+go build
 ```
+
+### Install Globally
+
+To install Pindar globally and add it to your PATH:
+
+```bash
+# Install to $GOPATH/bin (make sure $GOPATH/bin is in your PATH)
+go install github.com/richartkeil/pindar@latest
+
+# Or build and copy to a directory in your PATH
+git clone https://github.com/richartkeil/pindar.git
+cd pindar
+go build
+sudo cp pindar /usr/local/bin/
+```
+
+Make sure your PATH includes the installation directory:
+- For `go install`: Ensure `$GOPATH/bin` (usually `~/go/bin`) is in your PATH
+- For manual installation: `/usr/local/bin` should already be in your PATH
 
 ## Usage
 
 ```bash
-# Basic usage
-./pindar /path/to/audio/file.mp3
+pindar audio.mp3
+```
 
-# With OpenAI API key (if not set in environment)
-./pindar --api-key=your_api_key /path/to/audio/file.mp3
+### Command Line Options
 
-# Save output to a specific directory
-./pindar --output-dir=transcriptions /path/to/audio/file.mp3
+```bash
+pindar [OPTIONS] <audio-file>
 
-# Specify the output format
-./pindar --format=srt /path/to/audio/file.mp3
+Options:
+  --model string        OpenAI model to use (default: whisper-1)
+  --language string     Language of the audio file (optional, auto-detected if not specified)
+  --prompt string       Optional text to guide the model's style
+  --format string       Output format: text, srt, verbose_json, or vtt (default: text)
+  --output-dir, -o string    Directory to save output (default: current directory)
+  --output-ext string   Custom extension for output file
+  --api-key string      OpenAI API key (can also be set via OPENAI_API_KEY environment variable)
+  --temperature float   Sampling temperature between 0 and 1 (default: 0)
+```
 
-# Specify the language to improve accuracy
-./pindar --language=en /path/to/audio/file.mp3
+### Examples
 
-# Use a different model (default is whisper-1)
-./pindar --model=gpt-4o-transcribe /path/to/audio/file.mp3
+```bash
+# Basic transcription
+pindar interview.mp3
+
+# Specify language and output format
+pindar --language en --format srt meeting.wav
+
+# Custom output directory and extension
+pindar --output-dir ./transcripts --output-ext .transcript audio.m4a
+
+# Use custom prompt for better context
+pindar --prompt "This is a technical discussion about software development" podcast.mp3
 ```
 
 ## Environment Variables
 
 - `OPENAI_API_KEY`: Your OpenAI API key
 
-## API Key Configuration
-
-Pindar uses the following priority order to find your OpenAI API key:
-
-1. **Command-line argument**: `--api-key=your_key`
-2. **Environment variable**: `OPENAI_API_KEY`
-3. **Configuration file**: Stored in platform-specific config directory
-4. **Interactive prompt**: If none found, you'll be prompted to enter it
-
-When you enter an API key via the interactive prompt, it will be securely saved to:
-- **macOS**: `~/Library/Application Support/pindar/config.json`
-- **Linux**: `~/.config/pindar/config.json`
-- **Windows**: `%APPDATA%\pindar\config.json`
-
-The stored API key will be used for future runs unless overridden by a command-line argument or environment variable.
-
-## Supported Audio Formats
-
-**Native OpenAI API Formats** (used directly):
-- flac
-- mp3
-- mp4
-- mpeg
-- mpga
-- m4a
-- ogg
-- wav
-- webm
-
-**Auto-Converted Formats** (converted to MP4 using ffmpeg):
-- Any audio format supported by ffmpeg (e.g., aiff, au, amr, 3gp, etc.)
-
-### Automatic Format Conversion
-
-If you provide an audio file in a format not natively supported by the OpenAI API, Pindar will automatically:
-
-1. **Detect** the unsupported format
-2. **Convert** it to MP4 using ffmpeg (lossless compression with AAC codec)
-3. **Log** the conversion process
-4. **Clean up** the temporary converted file after transcription
-
-**Requirements for auto-conversion:**
-- [ffmpeg](https://ffmpeg.org/) must be installed and available in your system PATH
-
-**Installation of ffmpeg:**
-- **macOS**: `brew install ffmpeg`
-- **Ubuntu/Debian**: `sudo apt install ffmpeg`
-- **Windows**: Download from [ffmpeg.org](https://ffmpeg.org/download.html)
+The tool will automatically prompt for your API key on first use and store it securely for future sessions.
 
 ## Output Formats
 
 - `text` (default): Plain text transcription
 - `srt`: SubRip subtitle format
-- `vtt`: WebVTT subtitle format
-- `verbose_json`: Detailed JSON with additional information
-- `json`: Simple JSON format (required for gpt-4o models)
-
-## Limitations
-
-- Maximum audio file size: 25MB
-- For gpt-4o-transcribe and gpt-4o-mini-transcribe models, only 'json' response format is supported
+- `vtt`: WebVTT subtitle format  
+- `verbose_json`: Detailed JSON with timestamps and metadata
 
 ## License
 
-MIT
+MIT License

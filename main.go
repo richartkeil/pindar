@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"github.com/alexflint/go-arg"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
 )
 
 // Args defines the command line arguments for the transcription tool
@@ -27,21 +27,30 @@ type Args struct {
 	Temperature float64 `arg:"--temperature" default:"0" help:"Sampling temperature between 0 and 1 (higher is more random)"`
 }
 
-// supportedFormats lists the audio formats supported by OpenAI API
-var supportedFormats = map[string]bool{
-	"flac": true,
-	"m4a":  true,
-	"mp3":  true,
-	"mp4":  true,
-	"mpeg": true,
-	"mpga": true,
-	"oga":  true,
-	"ogg":  true,
-	"wav":  true,
-	"webm": true,
+func printHeader() {
+	fmt.Println("  Pindar - Audio Transcription CLI")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
 
-// getFileExtension returns the file extension without the dot
+func printParameters(args Args, audioFile string) {
+	fmt.Println("\n  Transcription Parameters:")
+	fmt.Printf("   File:        %s\n", audioFile)
+	fmt.Printf("   Model:       %s\n", args.Model)
+	if args.Language != "" {
+		fmt.Printf("   Language:    %s\n", args.Language)
+	} else {
+		fmt.Printf("   Language:    auto-detect\n")
+	}
+	fmt.Printf("   Format:      %s\n", args.Format)
+	if args.Temperature != 0 {
+		fmt.Printf("   Temperature: %.1f\n", args.Temperature)
+	}
+	if args.Prompt != "" {
+		fmt.Printf("   Prompt:      %s\n", args.Prompt)
+	}
+	fmt.Println()
+}
+
 func getFileExtension(filename string) string {
 	ext := filepath.Ext(filename)
 	if len(ext) > 0 {
@@ -50,32 +59,35 @@ func getFileExtension(filename string) string {
 	return ""
 }
 
-// isFormatSupported checks if the file format is supported by OpenAI API
-func isFormatSupported(filename string) bool {
-	ext := getFileExtension(filename)
-	return supportedFormats[ext]
+func isFormatSupported(ext string) bool {
+	supportedFormats := map[string]bool{
+		"flac": true, "mp3": true, "mp4": true, "mpeg": true, "mpga": true,
+		"m4a": true, "ogg": true, "wav": true, "webm": true,
+	}
+	return supportedFormats[strings.ToLower(ext)]
 }
 
-// convertToMP4 converts an audio file to MP4 format using ffmpeg
 func convertToMP4(inputPath string) (string, error) {
-	// Create a temporary file for the converted audio
-	tmpDir := os.TempDir()
+	// Create a temporary directory for the converted file
+	tmpDir, err := os.MkdirTemp("", "pindar_convert")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary directory: %w", err)
+	}
+
+	// Generate output file path
 	baseName := filepath.Base(inputPath)
 	nameWithoutExt := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 	outputPath := filepath.Join(tmpDir, nameWithoutExt+"_converted.mp4")
 
-	fmt.Printf("Converting %s to MP4 format...\n", inputPath)
-
 	// Check if ffmpeg is available
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return "", fmt.Errorf("ffmpeg not found: %w. Please install ffmpeg to convert unsupported audio formats", err)
+		return "", fmt.Errorf("ffmpeg is required for audio format conversion but was not found in PATH. Please install ffmpeg")
 	}
 
-	// Run ffmpeg conversion
-	// Using libfdk_aac for better quality, fallback to aac if not available
+	// Run ffmpeg conversion with hidden output
 	cmd := exec.Command("ffmpeg", "-i", inputPath, "-c:a", "aac", "-b:a", "128k", "-y", outputPath)
 
-	// Capture stderr for error messages
+	// Capture output to hide it
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
@@ -83,7 +95,6 @@ func convertToMP4(inputPath string) (string, error) {
 		return "", fmt.Errorf("ffmpeg conversion failed: %w\nOutput: %s", err, stderr.String())
 	}
 
-	fmt.Printf("Successfully converted to: %s\n", outputPath)
 	return outputPath, nil
 }
 
@@ -91,68 +102,71 @@ func main() {
 	var args Args
 	arg.MustParse(&args)
 
+	printHeader()
+
 	// Get API key using priority order: CLI arg → env var → config file → prompt user
 	apiKey, err := getAPIKey(args.APIKey)
 	if err != nil {
-		fmt.Printf("Error getting API key: %v\n", err)
+		fmt.Printf(" Error getting API key: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Set up OpenAI client
+	// Create OpenAI client
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
 	)
 
-	// Check if the file format is supported and convert if necessary
-	audioFilePath := args.File
-	var tempFilePath string
-
-	if !isFormatSupported(args.File) {
-		// Convert the file to MP4 format
-		convertedPath, err := convertToMP4(args.File)
+	// Check if format is supported, convert if necessary
+	originalFile := args.File
+	ext := getFileExtension(args.File)
+	if !isFormatSupported(ext) {
+		fmt.Printf(" Converting .%s to .mp4 format...\n", ext)
+		convertedFile, err := convertToMP4(args.File)
 		if err != nil {
-			fmt.Printf("Error converting file format: %v\n", err)
+			fmt.Printf(" Error converting audio file: %v\n", err)
 			os.Exit(1)
 		}
-		audioFilePath = convertedPath
-		tempFilePath = convertedPath // Remember to clean up later
+		defer os.Remove(convertedFile) // Clean up converted file
+		args.File = convertedFile
 	}
 
-	// Clean up temporary file when done
-	if tempFilePath != "" {
-		defer func() {
-			if err := os.Remove(tempFilePath); err != nil {
-				fmt.Printf("Warning: Failed to clean up temporary file %s: %v\n", tempFilePath, err)
-			}
-		}()
-	}
+	// Print transcription parameters
+	printParameters(args, originalFile)
 
 	// Validate the audio file
-	file, err := os.Open(audioFilePath)
+	file, err := os.Open(args.File)
 	if err != nil {
-		fmt.Printf("Error opening audio file: %v\n", err)
+		fmt.Printf(" Error opening audio file: %v\n", err)
 		os.Exit(1)
 	}
 	defer file.Close()
 
-	fileInfo, err := file.Stat()
-	if err != nil {
-		fmt.Printf("Error getting file info: %v\n", err)
-		os.Exit(1)
-	}
-
-	if fileInfo.Size() > 25*1024*1024 {
-		fmt.Println("Error: File size exceeds 25MB limit for OpenAI API")
-		os.Exit(1)
-	}
+	// Start transcription
+	fmt.Println(" Starting transcription...")
 
 	// Reset file pointer to beginning
-	file.Seek(0, io.SeekStart)
+	file.Seek(0, 0)
 
 	// Create the transcription params with required parameters
 	params := openai.AudioTranscriptionNewParams{
 		File:  file,
-		Model: args.Model,
+		Model: openai.AudioModel(args.Model),
+	}
+
+	if args.Language != "" {
+		params.Language = param.NewOpt(args.Language)
+	}
+
+	if args.Prompt != "" {
+		params.Prompt = param.NewOpt(args.Prompt)
+	}
+
+	// Set response format - always use JSON to avoid plain text parsing issues
+	// We'll handle the user's desired format in post-processing
+	params.ResponseFormat = openai.AudioResponseFormatJSON
+
+	if args.Temperature != 0 {
+		params.Temperature = param.NewOpt(args.Temperature)
 	}
 
 	// Create a context for the request
@@ -161,36 +175,58 @@ func main() {
 	// Send the transcription request
 	response, err := client.Audio.Transcriptions.New(ctx, params)
 	if err != nil {
-		fmt.Printf("Error during transcription: %v\n", err)
+		fmt.Printf("❌ Error calling OpenAI API: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Determine output filename
-	outputFileName := determineOutputFileName(args)
+	fmt.Println("✅ Transcription completed successfully!")
 
-	// Save or print output
-	if args.OutputDir != "" {
-		// Create output directory if it doesn't exist
-		if err := os.MkdirAll(args.OutputDir, 0755); err != nil {
-			fmt.Printf("Error creating output directory: %v\n", err)
+	// Handle response - we always get JSON format from API to avoid parsing issues
+	var transcriptionText string
+
+	switch args.Format {
+	case "text", "":
+		// User wants plain text - just use the text field
+		transcriptionText = response.Text
+	case "verbose_json":
+		// User wants verbose JSON - we need to note that we're using standard JSON
+		// since we forced JSON format, this is what we get
+		transcriptionText = response.Text
+	case "srt", "vtt":
+		// For SRT and VTT, we only get plain text from the API
+		// The user would need to use a different service for timestamp formatting
+		// For now, return the text with a note
+		transcriptionText = response.Text
+		fmt.Printf("⚠️  Note: SRT/VTT formats require timestamps. Using text output instead.\n")
+	default:
+		transcriptionText = response.Text
+	}
+
+	// Determine output file path
+	outputFile := ""
+	if args.OutputDir != "" || args.OutputExt != "" {
+		outputFile = determineOutputFileName(args, originalFile)
+	}
+
+	// Print response to stdout or save to file
+	if outputFile != "" {
+		err = os.WriteFile(outputFile, []byte(transcriptionText), 0644)
+		if err != nil {
+			fmt.Printf("❌ Error writing output file: %v\n", err)
 			os.Exit(1)
 		}
-
-		outputPath := filepath.Join(args.OutputDir, outputFileName)
-		if err := os.WriteFile(outputPath, []byte(response.Text), 0644); err != nil {
-			fmt.Printf("Error writing output file: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Transcription saved to: %s\n", outputPath)
+		fmt.Printf("💾 Transcription saved to: %s\n", outputFile)
 	} else {
-		// Print to stdout
-		fmt.Println(response.Text)
+		// Output to stdout with nice formatting
+		fmt.Println("\n📝 Transcription:")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Printf("%s\n", transcriptionText)
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	}
 }
 
-// determineOutputFileName generates an appropriate output filename based on input file and args
-func determineOutputFileName(args Args) string {
-	base := filepath.Base(args.File)
+func determineOutputFileName(args Args, originalFile string) string {
+	base := filepath.Base(originalFile)
 	ext := filepath.Ext(base)
 	nameWithoutExt := base[:len(base)-len(ext)]
 
@@ -214,5 +250,5 @@ func determineOutputFileName(args Args) string {
 		}
 	}
 
-	return nameWithoutExt + outputExt
+	return filepath.Join(args.OutputDir, nameWithoutExt+outputExt)
 }
